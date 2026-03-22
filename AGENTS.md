@@ -44,3 +44,14 @@ PostgreSQL 16 is the required database (runs via `docker compose --profile db up
 - The super admin token `super_token` is seeded automatically by the dev migration `V1_0_1__Super_user.sql`. Use it for CLI commands: `OVSX_PAT=super_token OVSX_REGISTRY_URL=http://localhost:8080 node cli/bin/ovsx create-namespace <name>`.
 - Docker must be running before starting the server (PostgreSQL dependency).
 - The `dockerd` daemon must be started manually in Cloud Agent environments: `sudo dockerd &>/tmp/dockerd.log &` and socket permissions fixed: `sudo chmod 666 /var/run/docker.sock`.
+
+### Offline / Production deployment
+
+See `deploy/offline/README.md` for deploying on air-gapped Ubuntu 22 LTS. Key points:
+
+- Production Docker images: `docker build -t openvsx-server:local server/` and `docker build -t openvsx-webui:local webui/`
+- Export/import tarballs: `deploy/offline/export-images.sh` / `import-images.sh`
+- The production server image runs as root (via `user: "0:0"` in compose) to handle Docker volume permissions for extension storage.
+- The production server image does NOT have `curl` — healthcheck uses bash `/dev/tcp` instead.
+- The `super_token` admin access token is NOT seeded in production. The `deploy/offline/deploy.sh` script runs `config/init-admin.sql` to create it after first startup.
+- Mirror mode (`--spring.profiles.include=ovsx,mirror`) enables automatic extension sync from open-vsx.org; see `server/src/dev/resources/application-mirror.yml` for configuration reference.

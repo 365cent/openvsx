@@ -1,0 +1,67 @@
+services:
+
+  postgres:
+    image: postgres:16.2
+    container_name: openvsx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openvsx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openvsx}
+      POSTGRES_DB: openvsx
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openvsx -d openvsx"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  server:
+    image: openvsx-server:local
+    container_name: openvsx-server
+    restart: unless-stopped
+    user: "0:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      JVM_ARGS: >-
+        -Dorg.jooq.no-logo=true
+        -Dorg.jooq.no-tips=true
+        --enable-native-access=ALL-UNNAMED
+    volumes:
+      - ./config/application.yml:/home/openvsx/server/config/application.yml:ro
+      - extension-storage:/home/openvsx/extensions
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8080 && echo -e \"GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q UP'"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  webui:
+    image: openvsx-webui:local
+    container_name: openvsx-webui
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${WEBUI_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres-data:
+    driver: local
+  extension-storage:
+    driver: local
