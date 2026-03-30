@@ -5,15 +5,17 @@ set -euo pipefail
 # sync-extensions.sh
 #
 # Downloads extensions from a public Open VSX registry and publishes them to a
-# local Open VSX instance. Designed to run on a machine WITH internet access.
+# LOCAL Open VSX instance. Designed to run on a machine WITH internet access.
 #
 # Usage:
 #   bash sync-extensions.sh [OPTIONS]
 #
 # Options:
-#   --source URL       Source registry URL (default: https://open-vsx.org)
-#   --target URL       Target registry URL (default: http://localhost:8080)
-#   --token TOKEN      Access token for target (default: super_token)
+#   --source URL       Source registry to download FROM (default: https://open-vsx.org)
+#   --target URL       LOCAL registry to publish TO (default: http://localhost:8080)
+#   --token TOKEN      Access token for the LOCAL target registry (default: super_token)
+#                      This is NOT your open-vsx.org token. Use the token seeded by
+#                      deploy.sh (super_token) or one you created in your local instance.
 #   --count N          Max extensions to sync (default: 0 = all)
 #   --offset N         Start offset for pagination (default: 0)
 #   --batch N          Page size per API call (default: 50)
@@ -21,6 +23,10 @@ set -euo pipefail
 #   --max-size MB      Skip extensions larger than N MB (default: 200)
 #   --timeout SECS     Download timeout per file in seconds (default: 300)
 #   --help             Show this help
+#
+# The default token "super_token" is created by deploy.sh (via init-admin.sql).
+# If you haven't run deploy.sh yet, run it first, or manually seed the token:
+#   docker exec -i openvsx-postgres psql -U openvsx -d openvsx < config/init-admin.sql
 #
 ###############################################################################
 
@@ -52,7 +58,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ "${HELP}" = true ]; then
-  head -35 "$0" | grep '^#' | sed 's/^# \?//'
+  head -40 "$0" | grep '^#' | sed 's/^# \?//'
   exit 0
 fi
 
@@ -79,11 +85,69 @@ fi
 echo "=========================================="
 echo ""
 
+# --- Pre-flight checks ---
+
+# 1. Check target is reachable
 if ! curl -sf --connect-timeout 5 "${TARGET_URL}/api/-/search" > /dev/null 2>&1; then
   echo "Error: Target registry at ${TARGET_URL} is not reachable."
   echo "Make sure the server is running: docker compose up -d"
   exit 1
 fi
+
+# 2. Validate the access token against the LOCAL target registry
+echo -n "[check] Validating access token against ${TARGET_URL}... "
+TOKEN_CHECK_FILE="${TMPDIR_SYNC}/token_check.json"
+TOKEN_HTTP=$(curl -s --connect-timeout 5 --max-time 10 \
+  -o "${TOKEN_CHECK_FILE}" -w "%{http_code}" \
+  -X POST "${TARGET_URL}/api/-/namespace/create?token=${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "__token_validation_test__"}' 2>/dev/null) || TOKEN_HTTP="000"
+
+TOKEN_ERROR=$(python3 -c "import json;print(json.load(open('${TOKEN_CHECK_FILE}')).get('error',''))" 2>/dev/null || echo "")
+
+if echo "${TOKEN_ERROR}" | grep -qi "invalid access token"; then
+  echo "FAILED"
+  echo ""
+  echo "================================================================"
+  echo " ERROR: Invalid access token for your LOCAL registry."
+  echo "================================================================"
+  echo ""
+  echo " The --token flag requires a token from YOUR LOCAL Open VSX"
+  echo " instance at ${TARGET_URL}, NOT from open-vsx.org."
+  echo ""
+  echo " Your token '${ACCESS_TOKEN:0:12}...' was rejected by the local server."
+  echo ""
+  echo " How to fix:"
+  echo "   Option 1: Use the default token (recommended)."
+  echo "     The deploy.sh script seeds a token called 'super_token'."
+  echo "     Just run without --token:"
+  echo "       bash sync-extensions.sh --count 5"
+  echo ""
+  echo "   Option 2: Re-seed the default token if it's missing:"
+  echo "     docker exec -i openvsx-postgres psql -U openvsx -d openvsx \\"
+  echo "       < config/init-admin.sql"
+  echo "     Then run: bash sync-extensions.sh --count 5"
+  echo ""
+  echo "   Option 3: Create a new token via the API (requires a logged-in user)."
+  echo "================================================================"
+  exit 1
+fi
+
+# If we accidentally created the test namespace, that's fine — it's harmless.
+# The important thing is the token was accepted.
+echo "OK"
+echo ""
+
+# 3. Check source is reachable
+echo -n "[check] Verifying source registry ${SOURCE_URL}... "
+if ! curl -sf --connect-timeout 5 --max-time 10 "${SOURCE_URL}/api/-/search?size=1" > /dev/null 2>&1; then
+  echo "FAILED"
+  echo "Error: Source registry at ${SOURCE_URL} is not reachable."
+  echo "Check your internet connection."
+  exit 1
+fi
+echo "OK"
+echo ""
 
 SYNCED=0
 FAILED=0
@@ -128,8 +192,6 @@ PYEOF
     break
   fi
 
-  # Process each extension (skip the header line)
-  # Use process substitution to avoid subshell so counters persist
   while IFS=$'\t' read -r NAMESPACE NAME VERSION DOWNLOAD_URL; do
     if [ -z "${NAMESPACE}" ] || [ -z "${NAME}" ]; then
       continue
