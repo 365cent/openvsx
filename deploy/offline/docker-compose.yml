@@ -1,7 +1,8 @@
 services:
 
   postgres:
-    image: postgres:16.2
+    image: ${POSTGRES_IMAGE:-postgres:16.2}
+    pull_policy: never
     container_name: openvsx-postgres
     restart: unless-stopped
     environment:
@@ -20,7 +21,8 @@ services:
       start_period: 10s
 
   server:
-    image: openvsx-server:local
+    image: ${SERVER_IMAGE:-openvsx-server:local}
+    pull_policy: never
     container_name: openvsx-server
     restart: unless-stopped
     user: "0:0"
@@ -45,7 +47,8 @@ services:
       start_period: 30s
 
   webui:
-    image: openvsx-webui:local
+    image: ${WEBUI_IMAGE:-openvsx-webui:local}
+    pull_policy: never
     container_name: openvsx-webui
     restart: unless-stopped
     depends_on:

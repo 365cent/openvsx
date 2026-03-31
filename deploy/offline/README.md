@@ -182,14 +182,26 @@ ovsx:
 
 ### Environment Variables
 
-Create a `.env` file next to `docker-compose.yml` to customize:
+Create a `.env` file next to `docker-compose.yml` to customize (see `.env.example`):
 
 ```env
-POSTGRES_PASSWORD=your_secure_password
+# Override image tags if yours differ from the defaults
+SERVER_IMAGE=openvsx-server:local
+WEBUI_IMAGE=openvsx-webui:latest
+POSTGRES_IMAGE=postgres:16.2
+
+# Exposed ports
 SERVER_PORT=8080
 WEBUI_PORT=3000
 POSTGRES_PORT=5432
+
+POSTGRES_PASSWORD=your_secure_password
 ```
+
+**Important:** All images use `pull_policy: never` — Docker will never try to
+pull from the internet. If an image is missing, you get a clear local error
+instead of a hanging pull. Make sure images exist locally (via `import-images.sh`
+or `docker build`).
 
 ### Application Settings
 

@@ -22,9 +22,14 @@ if ! docker compose version &> /dev/null; then
   exit 1
 fi
 
+SERVER_IMAGE="${SERVER_IMAGE:-openvsx-server:local}"
+WEBUI_IMAGE="${WEBUI_IMAGE:-openvsx-webui:local}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16.2}"
+export SERVER_IMAGE WEBUI_IMAGE POSTGRES_IMAGE
+
 echo "[1/4] Checking Docker images..."
 MISSING=0
-for IMG in openvsx-server:local openvsx-webui:local postgres:16.2; do
+for IMG in "${SERVER_IMAGE}" "${WEBUI_IMAGE}" "${POSTGRES_IMAGE}"; do
   if ! docker image inspect "${IMG}" &>/dev/null; then
     echo "  Missing: ${IMG}"
     MISSING=1
