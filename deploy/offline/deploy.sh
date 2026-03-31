@@ -44,12 +44,40 @@ if [ "${MISSING}" -eq 1 ]; then
   bash import-images.sh
 fi
 
+# Sanity check: detect swapped images (e.g. server image is actually webui)
 echo ""
-echo "[2/4] Starting services..."
+echo -n "[2/5] Verifying server image is a Java application... "
+SERVER_ENTRYPOINT=$(docker image inspect "${SERVER_IMAGE}" --format='{{join .Config.Entrypoint " "}}' 2>/dev/null || echo "")
+SERVER_CMD=$(docker image inspect "${SERVER_IMAGE}" --format='{{join .Config.Cmd " "}}' 2>/dev/null || echo "")
+SERVER_CHECK="${SERVER_ENTRYPOINT} ${SERVER_CMD}"
+
+if echo "${SERVER_CHECK}" | grep -qi "node\|npm\|yarn\|next\|express"; then
+  echo "FAILED"
+  echo ""
+  echo "================================================================"
+  echo " ERROR: ${SERVER_IMAGE} appears to be a Node.js image, not the"
+  echo "        Java/Spring Boot server."
+  echo ""
+  echo " Your server and webui images may be swapped. Check:"
+  echo "   docker images | grep openvsx"
+  echo ""
+  echo " The server image should be ~400-800 MB (Java + Spring Boot)."
+  echo " The webui image should be ~150-200 MB (Node.js + Express)."
+  echo ""
+  echo " Fix: set the correct tags in a .env file:"
+  echo "   SERVER_IMAGE=openvsx-server:latest"
+  echo "   WEBUI_IMAGE=openvsx-webui:latest"
+  echo "================================================================"
+  exit 1
+fi
+echo "OK"
+
+echo ""
+echo "[3/5] Starting services..."
 docker compose up -d
 
 echo ""
-echo "[3/4] Waiting for services to become healthy..."
+echo "[4/6] Waiting for services to become healthy..."
 TIMEOUT=120
 ELAPSED=0
 while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
@@ -69,12 +97,12 @@ if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
 fi
 
 echo ""
-echo "[4/5] Seeding admin user and access token..."
+echo "[5/6] Seeding admin user and access token..."
 sleep 2
 docker exec -i openvsx-postgres psql -U openvsx -d openvsx < config/init-admin.sql 2>/dev/null || echo "  (admin user may already exist)"
 
 echo ""
-echo "[5/5] Verifying endpoints..."
+echo "[6/6] Verifying endpoints..."
 echo ""
 
 if curl -sf http://localhost:8080/api/-/search > /dev/null 2>&1; then

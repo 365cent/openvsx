@@ -283,10 +283,31 @@ bash restore-data.sh backups/openvsx-db-backup-TIMESTAMP.sql.gz backups/openvsx-
 | Issue | Solution |
 |-------|----------|
 | Server won't start | Check `docker compose logs server`. Ensure PostgreSQL is healthy first. |
+| Server logs show "Web UI server running on port 3000" | Your server image is actually the webui image (images are swapped). Fix: check `docker images \| grep openvsx` — the server should be ~400-800 MB. Set correct tags in `.env` (see below). |
 | Web UI shows blank page | Ensure server is running. Check browser console for API errors. |
+| `docker compose up` hangs pulling | Image not found locally. Check `docker images \| grep openvsx` and set the correct tags in `.env`. All images use `pull_policy: never`. |
 | Extensions not showing | Verify data was restored: `curl http://localhost:8080/api/-/search` |
 | Out of disk space | Extension storage grows with synced extensions. Monitor with `docker system df`. |
 | Database connection refused | Ensure postgres container is running and healthy. |
+
+**Common fix: wrong image tags.** If you built images yourself, they may have
+different tags than the defaults (`:local`). Check what you have:
+
+```bash
+docker images | grep openvsx
+```
+
+Then create a `.env` file with the correct tags:
+
+```bash
+cat > .env <<'EOF'
+SERVER_IMAGE=openvsx-server:latest
+WEBUI_IMAGE=openvsx-webui:latest
+EOF
+```
+
+The server image (~400-800 MB) contains Java/Spring Boot.
+The webui image (~150-200 MB) contains Node.js/Express.
 
 ## VS Code / Compatible Editor Configuration
 
